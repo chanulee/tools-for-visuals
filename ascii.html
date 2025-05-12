@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ASCII Art Generator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=Source+Code+Pro:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        #asciiOutput {
+            font-family: 'Source Code Pro', monospace; /* Monospace font is crucial */
+            white-space: pre; /* Preserve whitespace and line breaks */
+            overflow: auto;   /* Add scrollbars if content overflows */
+            line-height: 1; /* Adjust line height for better density */
+            letter-spacing: 0; /* Adjust letter spacing */
+            font-size: 8px; /* Start with a small font size, can be adjusted */
+            background-color: #f9fafb; /* Light background for default */
+            border: 1px solid #e5e7eb; /* Subtle border */
+            border-radius: 0.375rem; /* Rounded corners */
+            padding: 1rem; /* Padding */
+            max-height: 60vh; /* Limit height to prevent excessive page length */
+            min-height: 200px; /* Ensure a minimum height */
+            transition: background-color 0.3s, color 0.3s; /* Smooth transition for invert */
+        }
+        #asciiOutput.inverted {
+            background-color: #1f2937; /* Dark background */
+            color: #f9fafb; /* Light text */
+            border-color: #4b5563; /* Darker border */
+        }
+        /* Hide the canvases used for processing */
+        #processingCanvas, #pngCanvas {
+            display: none;
+        }
+        /* Basic styling for sliders */
+        input[type=range] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 8px;
+            background: #d1d5db; /* Gray track */
+            outline: none;
+            opacity: 0.7;
+            -webkit-transition: .2s;
+            transition: opacity .2s;
+            border-radius: 9999px; /* Rounded track */
+            cursor: pointer;
+        }
+        input[type=range]:hover {
+            opacity: 1;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            background: #3b82f6; /* Blue thumb */
+            cursor: pointer;
+            border-radius: 50%; /* Circular thumb */
+        }
+        input[type=range]::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            background: #3b82f6; /* Blue thumb */
+            cursor: pointer;
+            border-radius: 50%; /* Circular thumb */
+            border: none; /* Remove default border */
+        }
+        /* Loading overlay */
+        #loadingOverlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(255, 255, 255, 0.8); /* Semi-transparent white */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 50; /* Ensure it's above other content */
+            border-radius: 0.5rem; /* Match container rounding */
+            transition: opacity 0.3s ease-in-out;
+        }
+        #loadingOverlay.inverted-overlay {
+             background-color: rgba(31, 41, 55, 0.8); /* Semi-transparent dark for inverted mode */
+        }
+        /* Simple spinner animation */
+        .spinner {
+            border: 4px solid #f3f4f6; /* Light grey */
+            border-top: 4px solid #3b82f6; /* Blue */
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        #loadingOverlay.inverted-overlay .spinner {
+             border: 4px solid #4b5563; /* Darker grey */
+             border-top: 4px solid #60a5fa; /* Lighter blue */
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        /* Styling for select dropdown */
+        select {
+            padding: 0.5rem 2.5rem 0.5rem 0.75rem; /* Adjust padding for arrow */
+            border: 1px solid #d1d5db;
+            border-radius: 0.375rem;
+            background-color: white;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='currentColor' class='w-5 h-5'%3E%3Cpath fill-rule='evenodd' d='M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.25 4.25a.75.75 0 01-1.06 0L5.23 8.27a.75.75 0 01.02-1.06z' clip-rule='evenodd' /%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 0.5rem center;
+            background-size: 1.5em 1.5em;
+            cursor: pointer;
+        }
+        /* Styling for download buttons container */
+        .download-buttons {
+            display: flex;
+            justify-content: center;
+            gap: 1rem; /* Space between buttons */
+            flex-wrap: wrap; /* Allow buttons to wrap on smaller screens */
+        }
+    </style>
+</head>
+<body class="bg-gray-100 p-4 md:p-8 flex flex-col items-center min-h-screen">
+
+    <div class="bg-white p-6 md:p-8 rounded-lg shadow-md w-full max-w-5xl">
+        <h1 class="text-2xl md:text-3xl font-bold mb-6 text-center text-gray-800">ASCII Art Generator</h1>
+
+        <div class="mb-6 p-4 border border-gray-200 rounded-md bg-gray-50">
+            <label for="imageUpload" class="block text-sm font-medium text-gray-700 mb-2">1. Upload Image:</label>
+            <input type="file" id="imageUpload" accept="image/*" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer">
+            <p id="uploadError" class="text-red-500 text-xs mt-1 hidden">Please select a valid image file.</p>
+        </div>
+
+        <div class="mb-6 p-4 border border-gray-200 rounded-md bg-gray-50 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-4 items-start">
+            <div>
+                <label for="resolutionSlider" class="block text-sm font-medium text-gray-700 mb-1">2. Detail (Width): <span id="resolutionValue" class="font-semibold">100</span> chars</label>
+                <input type="range" id="resolutionSlider" min="20" max="300" value="100" class="w-full">
+                <p class="text-xs text-gray-500 mt-1">Adjusts the width in characters.</p>
+            </div>
+            <div>
+                <label for="contrastSlider" class="block text-sm font-medium text-gray-700 mb-1">3. Contrast: <span id="contrastValue" class="font-semibold">1.0</span></label>
+                <input type="range" id="contrastSlider" min="0.1" max="3.0" value="1.0" step="0.1" class="w-full">
+                 <p class="text-xs text-gray-500 mt-1">Adjusts image contrast.</p>
+            </div>
+             <div class="lg:col-span-1">
+                <label for="charSetSelect" class="block text-sm font-medium text-gray-700 mb-1">4. Character Set:</label>
+                <select id="charSetSelect" class="w-full text-sm">
+                    <option value="detailed">Detailed</option>
+                    <option value="simple">Simple</option>
+                    <option value="blocks">Blocks</option>
+                    <option value="slashes">Slashes & Pipes</option>
+                </select>
+                 <p class="text-xs text-gray-500 mt-1">Changes the characters used.</p>
+            </div>
+            <div class="flex items-center space-x-3 pt-2 lg:col-start-3 lg:justify-self-center">
+                 <label for="invertColors" class="text-sm font-medium text-gray-700">Invert Colors:</label>
+                <input type="checkbox" id="invertColors" class="h-5 w-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer">
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            <div>
+                <h2 class="text-lg font-semibold mb-2 text-gray-700">Original Image Preview:</h2>
+                <div class="border border-gray-200 rounded-md overflow-hidden bg-gray-100 flex items-center justify-center min-h-[200px]">
+                    <img id="imagePreview" src="https://placehold.co/400x300/e2e8f0/cbd5e0?text=Upload+Image" alt="Image Preview" class="max-w-full max-h-80 object-contain rounded-md" onerror="this.src='https://placehold.co/400x300/e2e8f0/cbd5e0?text=Error+Loading'; console.error('Error loading image preview:', this.src)">
+                </div>
+            </div>
+
+            <div class="relative">
+                <h2 class="text-lg font-semibold mb-2 text-gray-700">Generated ASCII Art:</h2>
+                <pre id="asciiOutput" class="text-xs leading-tight"></pre>
+                 <div id="loadingOverlay" class="hidden opacity-0">
+                    <div class="spinner"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="text-center download-buttons">
+             <button id="downloadTxtBtn" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-6 rounded-md shadow transition duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                Download (.txt)
+            </button>
+            <button id="downloadPngBtn" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-6 rounded-md shadow transition duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                Download (.png)
+            </button>
+        </div>
+
+    </div>
+
+    <canvas id="processingCanvas"></canvas>
+    <canvas id="pngCanvas"></canvas> <script>
+        // --- DOM Elements ---
+        const imageUpload = document.getElementById('imageUpload');
+        const imagePreview = document.getElementById('imagePreview');
+        const processingCanvas = document.getElementById('processingCanvas');
+        const processCtx = processingCanvas.getContext('2d', { willReadFrequently: true });
+        const pngCanvas = document.getElementById('pngCanvas'); // New PNG canvas
+        const pngCtx = pngCanvas.getContext('2d'); // New PNG context
+        const resolutionSlider = document.getElementById('resolutionSlider');
+        const resolutionValue = document.getElementById('resolutionValue');
+        const contrastSlider = document.getElementById('contrastSlider');
+        const contrastValue = document.getElementById('contrastValue');
+        const charSetSelect = document.getElementById('charSetSelect');
+        const invertColorsCheckbox = document.getElementById('invertColors');
+        const asciiOutput = document.getElementById('asciiOutput');
+        const downloadTxtBtn = document.getElementById('downloadTxtBtn'); // Renamed
+        const downloadPngBtn = document.getElementById('downloadPngBtn'); // New
+        const uploadError = document.getElementById('uploadError');
+        const loadingOverlay = document.getElementById('loadingOverlay');
+
+        // --- ASCII Character Sets ---
+        const CHAR_SETS = {
+            // Sorted dark to light
+            detailed: ["$", "@", "B", "%", "8", "&", "W", "M", "#", "*", "o", "a", "h", "k", "b", "d", "p", "q", "w", "m", "Z", "O", "0", "Q", "L", "C", "J", "U", "Y", "X", "z", "c", "v", "u", "n", "x", "r", "j", "f", "t", "/", "\\", "|", "(", ")", "1", "{", "}", "[", "]", "?", "-", "_", "+", "~", "<", ">", "i", "!", "l", "I", ";", ":", ",", "\"", "^", "`", "'", ".", " "],
+            simple:   ['@', '#', 'S', '%', '?', '*', '+', ';', ':', ',', '.', ' '], // <<< Added space here
+            blocks:   ['█', '▓', '▒', '░', ' '],
+            slashes:  ['#', '/', '\\', '|', '-', '_', '+', '~', '.', ' ']
+        };
+
+        let currentAsciiChars = CHAR_SETS.detailed;
+        let originalImage = null;
+        let isProcessing = false;
+        let lastGeneratedAscii = ""; // Store the last generated text
+
+        // --- Constants for PNG Rendering ---
+        const PNG_FONT_SIZE = 10; // Font size in pixels for the PNG
+        const PNG_LINE_HEIGHT_MULTIPLIER = 1.0; // Adjust for spacing between lines in PNG (1.0 = tight)
+        const PNG_FONT = `${PNG_FONT_SIZE}px 'Source Code Pro', monospace`;
+
+        // --- Helper Functions ---
+        const clamp = (num, min, max) => Math.min(Math.max(num, min), max);
+
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }
+
+        // --- Event Listeners ---
+        imageUpload.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            uploadError.classList.add('hidden');
+            disableDownloadButtons();
+            asciiOutput.textContent = '';
+            lastGeneratedAscii = "";
+
+            if (file && file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    originalImage = new Image();
+                    originalImage.onload = () => {
+                        imagePreview.src = e.target.result;
+                        debouncedGenerateAscii();
+                    };
+                    originalImage.onerror = () => { displayError("Error loading image."); originalImage = null; };
+                    originalImage.src = e.target.result;
+                };
+                reader.onerror = () => { displayError("Error reading file."); originalImage = null; };
+                reader.readAsDataURL(file);
+            } else if (file) {
+                displayError("Please select a valid image file (e.g., JPG, PNG, GIF).");
+                imagePreview.src = 'https://placehold.co/400x300/e2e8f0/cbd5e0?text=Invalid+File';
+                originalImage = null;
+            } else {
+                 imagePreview.src = 'https://placehold.co/400x300/e2e8f0/cbd5e0?text=Upload+Image';
+                 originalImage = null;
+            }
+        });
+
+        resolutionSlider.addEventListener('input', () => {
+            resolutionValue.textContent = resolutionSlider.value;
+            if (originalImage) debouncedGenerateAscii();
+        });
+
+        contrastSlider.addEventListener('input', () => {
+            contrastValue.textContent = parseFloat(contrastSlider.value).toFixed(1);
+             if (originalImage) debouncedGenerateAscii();
+        });
+
+        charSetSelect.addEventListener('change', () => {
+            updateCharSet(); // Update the current set based on selection and inversion
+            if (originalImage) debouncedGenerateAscii(); // Regenerate immediately
+        });
+
+        invertColorsCheckbox.addEventListener('change', () => {
+            updateCharSet(); // Update the current set based on selection and inversion
+            asciiOutput.classList.toggle('inverted', invertColorsCheckbox.checked);
+            loadingOverlay.classList.toggle('inverted-overlay', invertColorsCheckbox.checked);
+            if (originalImage) debouncedGenerateAscii(); // Regenerate immediately
+        });
+
+        // --- Download Button Listeners ---
+        downloadTxtBtn.addEventListener('click', () => {
+            const text = lastGeneratedAscii; // Use stored text
+            if (!text || isProcessing) return;
+            downloadFile(text, generateFilename('txt'), 'text/plain;charset=utf-8');
+        });
+
+        downloadPngBtn.addEventListener('click', () => {
+            const text = lastGeneratedAscii; // Use stored text
+            if (!text || isProcessing || !pngCtx) return;
+            generateAndDownloadPng(text);
+        });
+
+        // --- Core Functions ---
+
+        function updateCharSet() {
+             const selectedSetKey = charSetSelect.value;
+             const baseSet = CHAR_SETS[selectedSetKey] || CHAR_SETS.detailed; // Fallback
+             currentAsciiChars = invertColorsCheckbox.checked ? [...baseSet].reverse() : baseSet;
+        }
+
+        function displayError(message) {
+            console.error(message);
+            uploadError.textContent = message;
+            uploadError.classList.remove('hidden');
+            hideLoading(); // Ensure loading is hidden on error
+        }
+
+        function showLoading() {
+            isProcessing = true;
+            loadingOverlay.classList.remove('hidden');
+            requestAnimationFrame(() => {
+                 requestAnimationFrame(() => { loadingOverlay.style.opacity = '1'; });
+            });
+            disableDownloadButtons();
+            // Disable controls
+            resolutionSlider.disabled = true;
+            contrastSlider.disabled = true;
+            charSetSelect.disabled = true;
+            invertColorsCheckbox.disabled = true;
+        }
+
+        function hideLoading() {
+            isProcessing = false;
+            loadingOverlay.style.opacity = '0';
+             // Hide the overlay after the transition finishes
+            setTimeout(() => {
+                 loadingOverlay.classList.add('hidden');
+            }, 300); // Match transition duration in CSS
+            // Enable controls
+            resolutionSlider.disabled = false;
+            contrastSlider.disabled = false;
+            charSetSelect.disabled = false;
+            invertColorsCheckbox.disabled = false;
+            // Enable download buttons only if there's content
+            const hasContent = !!lastGeneratedAscii && !lastGeneratedAscii.startsWith('//');
+            downloadTxtBtn.disabled = !hasContent;
+            downloadPngBtn.disabled = !hasContent;
+        }
+
+        function disableDownloadButtons() {
+            downloadTxtBtn.disabled = true;
+            downloadPngBtn.disabled = true;
+        }
+
+        // Generic file download function
+        function downloadFile(data, filename, type) {
+            const blob = new Blob([data], { type: type });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a); // Append to body to ensure visibility in all browsers
+            a.click();
+            document.body.removeChild(a); // Clean up the link
+            URL.revokeObjectURL(url); // Release the object URL
+        }
+
+        // Generates a filename based on settings
+        function generateFilename(extension) {
+            const originalFilename = imageUpload.files[0]?.name.split('.')[0] || 'ascii-art';
+            const setName = charSetSelect.value;
+            const inverted = invertColorsCheckbox.checked ? '-inverted' : '';
+            return `${originalFilename}-${resolutionSlider.value}w-${setName}${inverted}.${extension}`;
+        }
+
+
+        // ASCII generation function
+        function generateAscii() {
+            if (!originalImage || !processCtx || isProcessing) {
+                // console.warn("ASCII generation skipped: Image/context not ready or already processing.");
+                return;
+            }
+
+            showLoading();
+            asciiOutput.textContent = ''; // Clear visually immediately
+
+            // Use setTimeout to ensure the loading indicator is rendered before heavy processing
+            setTimeout(() => {
+                try {
+                    // --- Get current settings ---
+                    const targetWidth = parseInt(resolutionSlider.value, 10);
+                    const contrastFactor = parseFloat(contrastSlider.value);
+                    const chars = currentAsciiChars; // Use the updated character set
+                    const aspectRatio = originalImage.naturalHeight / originalImage.naturalWidth;
+                    // Adjust height factor based on typical character aspect ratio (often taller than wide)
+                    const characterAspectRatio = 0.5; // Lower value = more rows for the same width
+                    const targetHeight = Math.max(1, Math.round(targetWidth * aspectRatio * characterAspectRatio)); // Ensure height is at least 1
+
+                    // --- 1. Draw image onto canvas ---
+                    processingCanvas.width = targetWidth;
+                    processingCanvas.height = targetHeight;
+                    processCtx.drawImage(originalImage, 0, 0, targetWidth, targetHeight);
+
+                    // --- 2. Get pixel data ---
+                    const imageData = processCtx.getImageData(0, 0, targetWidth, targetHeight);
+                    const data = imageData.data;
+
+                    // --- 3. Convert pixels to ASCII ---
+                    let asciiString = '';
+                    const numChars = chars.length;
+
+                    for (let y = 0; y < targetHeight; y++) {
+                        for (let x = 0; x < targetWidth; x++) {
+                            const index = (y * targetWidth + x) * 4;
+                            const r = data[index];
+                            const g = data[index + 1];
+                            const b = data[index + 2];
+                            // const a = data[index + 3]; // Alpha - could be used later
+
+                            // Calculate grayscale brightness (Luminance method - often better)
+                            let brightness = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+
+                            // Apply contrast adjustment
+                            brightness = contrastFactor * (brightness - 128) + 128;
+
+                            // Clamp brightness to 0-255 range
+                            brightness = clamp(brightness, 0, 255);
+
+                            // Map brightness to character index
+                            // Ensure index is within bounds [0, numChars - 1]
+                            const charIndex = clamp(Math.floor((brightness / 255) * numChars), 0, numChars - 1);
+                            const char = chars[charIndex];
+                            asciiString += char;
+                        }
+                        asciiString += '\n'; // Newline after each row
+                    }
+
+                    // Store and display
+                    lastGeneratedAscii = asciiString.trimEnd(); // Store the result, remove trailing newline
+                     requestAnimationFrame(() => {
+                         asciiOutput.textContent = lastGeneratedAscii; // Display the stored result
+                         hideLoading(); // Hide loading *after* content is set
+                     });
+
+                } catch (error) {
+                    displayError("An error occurred during ASCII conversion.");
+                    console.error("ASCII Generation Error:", error);
+                    lastGeneratedAscii = "// Error generating ASCII //";
+                    asciiOutput.textContent = lastGeneratedAscii;
+                    hideLoading(); // Ensure loading is hidden on error
+                }
+            }, 50); // Increased delay slightly to ensure UI update
+        }
+
+        // --- PNG Generation and Download ---
+        function generateAndDownloadPng(asciiText) {
+            if (!asciiText || !pngCtx) return;
+
+            const lines = asciiText.split('\n');
+            if (lines.length === 0) return;
+
+            const numLines = lines.length;
+            // Find the longest line to determine width accurately
+            const numCols = lines.reduce((max, line) => Math.max(max, line.length), 0);
+            if (numCols === 0) return;
+
+            // --- Calculate canvas dimensions ---
+            pngCtx.font = PNG_FONT;
+            // Measure character width (use a wide character like 'W' for better estimate)
+            const charMetrics = pngCtx.measureText('W');
+            // Use fontBoundingBoxAscent/Descent if available for more accuracy, otherwise estimate
+            const charWidth = charMetrics.width; // Width of 'W'
+             const estimatedLineHeight = PNG_FONT_SIZE * PNG_LINE_HEIGHT_MULTIPLIER;
+
+            const canvasWidth = Math.ceil(numCols * charWidth);
+            const canvasHeight = Math.ceil(numLines * estimatedLineHeight);
+
+            // --- Configure and clear canvas ---
+            pngCanvas.width = canvasWidth;
+            pngCanvas.height = canvasHeight;
+            pngCtx.clearRect(0, 0, canvasWidth, canvasHeight); // Ensure transparency
+
+            // --- Set drawing styles ---
+            pngCtx.font = PNG_FONT;
+            pngCtx.fillStyle = invertColorsCheckbox.checked ? '#FFFFFF' : '#000000'; // White text if inverted, else black
+            pngCtx.textBaseline = 'top'; // Align text to the top
+
+            // --- Draw text line by line ---
+            for (let i = 0; i < numLines; i++) {
+                const line = lines[i];
+                const yPos = i * estimatedLineHeight;
+                pngCtx.fillText(line, 0, yPos);
+            }
+
+            // --- Trigger download ---
+            try {
+                const dataUrl = pngCanvas.toDataURL('image/png');
+                const filename = generateFilename('png');
+                const a = document.createElement('a');
+                a.href = dataUrl;
+                a.download = filename;
+                document.body.appendChild(a); // Append to body to ensure visibility in all browsers
+                a.click();
+                document.body.removeChild(a); // Clean up the link
+            } catch (e) {
+                console.error("Error generating or downloading PNG:", e);
+                displayError("Failed to generate PNG. Canvas may be too large or tainted.");
+            }
+        }
+
+
+        // Create a debounced version of the generation function
+        const debouncedGenerateAscii = debounce(generateAscii, 150); // Adjust delay (ms) as needed
+
+        // --- Initial Setup ---
+        resolutionValue.textContent = resolutionSlider.value;
+        contrastValue.textContent = parseFloat(contrastSlider.value).toFixed(1);
+        updateCharSet(); // Set initial character set based on default selection/inversion
+        asciiOutput.textContent = "// Upload an image to start //";
+        disableDownloadButtons(); // Ensure buttons are disabled initially
+
+    </script>
+
+</body>
+</html>
